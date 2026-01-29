@@ -39,6 +39,7 @@ conda-bld/
 # 備份工具特定
 .backup_tool/
 *.log
+setup_log_*.txt
 *.bak
 .backup_manifest
 manifest.json
