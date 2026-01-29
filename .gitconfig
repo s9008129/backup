@@ -1,0 +1,34 @@
+[core]
+    filemode = false
+    autocrlf = true
+    safecrlf = false
+    whitespace = cr-at-eol
+
+[diff]
+    tool = vscode
+
+[merge]
+    tool = vscode
+
+[mergetool "vscode"]
+    cmd = code --wait $MERGED
+
+[difftool "vscode"]
+    cmd = code --diff $LOCAL $REMOTE
+
+[commit]
+    template = .gitmessage
+
+[user]
+    name = "Backup Tool Dev"
+    email = "backup-tool@local"
+
+[alias]
+    st = status
+    co = checkout
+    br = branch
+    ci = commit
+    unstage = reset HEAD --
+    last = log -1 HEAD
+    visual = log --graph --oneline --all
+    history = log --oneline -20

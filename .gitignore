@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Conda
+.conda/
+conda-bld/
+.conda_env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 備份工具特定
+.backup_tool/
+*.log
+*.bak
+.backup_manifest
+manifest.json
+history.json
+
+# Windows
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# Temporary
+temp/
+tmp/
+*.tmp

@@ -1,0 +1,22 @@
+name: backup
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - tk
+  - pip
+  - pip:
+    - python-dateutil
+    - pytz
+specifications:
+  description: "簡易差異備份工具開發環境"
+  python_version: "3.11"
+  required_packages:
+    - tkinter: "GUI介面"
+    - json: "元資料序列化"
+    - datetime: "時間處理"
+    - shutil: "檔案操作"
+    - pathlib: "路徑管理"
+    - threading: "背景執行"
+    - os: "系統操作"
