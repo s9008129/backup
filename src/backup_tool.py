@@ -217,8 +217,15 @@ class DeltaBackupEngine:
     @staticmethod
     def verify_backup_integrity(manifest_files, backup_folder):
         """驗證備份是否與 manifest 一致 (P1-1)"""
-        # 掃描實際備份
-        actual_files = DeltaBackupEngine.scan_folder(backup_folder)
+        # 掃描實際備份（異常處理改善）
+        try:
+            actual_files = DeltaBackupEngine.scan_folder(backup_folder)
+        except Exception as e:
+            raise BackupIntegrityError(
+                f"❌ 無法掃描備份資料夾: {str(e)}\n"
+                f"備份可能被防病毒軟體保護、被鎖定或已損毀。"
+            )
+        
         actual_keys = set(actual_files.keys())
         manifest_keys = set(manifest_files.keys())
         
@@ -474,7 +481,15 @@ class BackupToolGUI:
             
             # P1-2: 源路徑驗證（防止同步錯誤資料夾）
             stored_source = manifest.data.get('sourceFolder', '')
-            if stored_source and stored_source != source:
+            # 正規化路徑以支持大小寫差異或格式不同
+            if stored_source:
+                stored_norm = os.path.normcase(os.path.normpath(stored_source))
+                current_norm = os.path.normcase(os.path.normpath(source))
+                paths_differ = stored_norm != current_norm
+            else:
+                paths_differ = False
+            
+            if paths_differ:
                 # 源路徑已改變
                 response = messagebox.askyesno(
                     "⚠️ 來源資料夾已改變",
