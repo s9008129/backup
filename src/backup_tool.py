@@ -10,12 +10,19 @@ import sys
 import json
 import shutil
 import hashlib
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from threading import Thread
 import traceback
+
+
+class BackupIntegrityError(Exception):
+    """備份完整性錯誤"""
+    pass
+
 
 class BackupManifest:
     """備份元資料管理"""
@@ -47,10 +54,44 @@ class BackupManifest:
         }
     
     def save(self):
-        """儲存元資料"""
+        """原子性儲存元資料（使用臨時檔案 + 原子重命名）"""
         try:
-            with open(self.manifest_path, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, ensure_ascii=False, indent=2)
+            # 使用臨時檔案
+            manifest_dir = os.path.dirname(self.manifest_path)
+            os.makedirs(manifest_dir, exist_ok=True)
+            
+            # 建立臨時檔案
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=manifest_dir,
+                suffix='.tmp',
+                prefix='.manifest_'
+            )
+            
+            try:
+                # 寫入臨時檔案
+                with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                    json.dump(self.data, f, ensure_ascii=False, indent=2)
+                
+                # 驗證臨時檔案有效
+                with open(temp_path, 'r', encoding='utf-8') as f:
+                    json.load(f)
+                
+                # 原子重命名（操作系統層級保證）
+                os.replace(temp_path, self.manifest_path)
+                
+            except Exception as e:
+                # 清理失敗的臨時檔案
+                try:
+                    os.close(temp_fd)
+                except:
+                    pass
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+                raise e
+                
         except Exception as e:
             raise Exception(f"儲存元資料失敗: {e}")
     
@@ -77,6 +118,11 @@ class BackupManifest:
                 for path, info in files_info.items()
             ]
         }
+        self.save()
+    
+    def reset(self):
+        """重置元資料（清除備份紀錄）"""
+        self.data = self._default_manifest()
         self.save()
 
 
@@ -167,6 +213,59 @@ class DeltaBackupEngine:
                     errors.append(f"大小不符: {rel_path}")
         
         return errors
+    
+    @staticmethod
+    def verify_backup_integrity(manifest_files, backup_folder):
+        """驗證備份是否與 manifest 一致 (P1-1)"""
+        # 掃描實際備份
+        actual_files = DeltaBackupEngine.scan_folder(backup_folder)
+        actual_keys = set(actual_files.keys())
+        manifest_keys = set(manifest_files.keys())
+        
+        # 檢查缺失的檔案
+        missing = manifest_keys - actual_keys
+        if missing:
+            missing_list = list(missing)[:5]  # 只顯示前5個
+            raise BackupIntegrityError(
+                f"❌ 備份不完整: 預期 {len(manifest_keys)} 個檔案，"
+                f"實際只有 {len(actual_keys)} 個。"
+                f"缺少 {len(missing)} 個檔案。"
+                f"示例: {', '.join(missing_list)}"
+                + (f" ... 等{len(missing)-5}個" if len(missing) > 5 else "")
+            )
+        
+        return True
+    
+    @staticmethod
+    def check_disk_space(source_folder, target_folder):
+        """檢查磁碟空間是否充足 (P1-3)"""
+        try:
+            # 計算源資料夾總大小
+            total_size = sum(
+                f['size'] for f in 
+                DeltaBackupEngine.scan_folder(source_folder).values()
+            )
+            
+            # 取得目標磁碟可用空間
+            available = shutil.disk_usage(target_folder).free
+            
+            # 保留 20% 緩衝
+            required_with_buffer = total_size / 0.8
+            
+            if required_with_buffer > available:
+                available_gb = available / 1e9
+                required_gb = required_with_buffer / 1e9
+                raise Exception(
+                    f"❌ 磁碟空間不足！\n"
+                    f"需要: {required_gb:.2f} GB (含 20% 緩衝)\n"
+                    f"可用: {available_gb:.2f} GB"
+                )
+            
+            return True
+        except Exception as e:
+            if isinstance(e, Exception) and "磁碟空間不足" in str(e):
+                raise
+            raise Exception(f"檢查磁碟空間失敗: {str(e)}")
 
 
 class BackupLogger:
@@ -360,6 +459,12 @@ class BackupToolGUI:
             if not os.path.exists(target):
                 raise Exception("❌ 目標位置不存在 - 請檢查外接裝置是否已連接")
             
+            # P1-3: 空間預檢查（在複製前驗證）
+            try:
+                DeltaBackupEngine.check_disk_space(source, target)
+            except Exception as e:
+                raise Exception(str(e))
+            
             # 建立目標資料夾
             backup_folder = os.path.join(target, "backup_data")
             os.makedirs(backup_folder, exist_ok=True)
@@ -367,11 +472,51 @@ class BackupToolGUI:
             manifest_path = os.path.join(target, ".backup_manifest")
             manifest = BackupManifest(manifest_path)
             
+            # P1-2: 源路徑驗證（防止同步錯誤資料夾）
+            stored_source = manifest.data.get('sourceFolder', '')
+            if stored_source and stored_source != source:
+                # 源路徑已改變
+                response = messagebox.askyesno(
+                    "⚠️ 來源資料夾已改變",
+                    f"來源資料夾已改變：\n"
+                    f"舊: {stored_source}\n"
+                    f"新: {source}\n\n"
+                    f"將執行完整備份（舊備份紀錄會被清除）。\n"
+                    f"確認繼續？"
+                )
+                if response:
+                    manifest.reset()  # 清除舊紀錄
+                    old_files = {}
+                else:
+                    raise Exception("使用者取消備份")
+            else:
+                # P1-1: 備份完整性檢查（驗證上次備份是否真實存在）
+                manifest_files = manifest.get_files_dict()
+                if manifest_files:  # 只有在有舊紀錄時才檢查
+                    try:
+                        DeltaBackupEngine.verify_backup_integrity(manifest_files, backup_folder)
+                    except BackupIntegrityError as e:
+                        # 備份不完整，提醒使用者
+                        response = messagebox.askyesno(
+                            "⚠️ 備份不完整",
+                            f"{str(e)}\n\n"
+                            f"備份可能已損毀或被刪除。\n"
+                            f"要重新執行完整備份嗎？"
+                        )
+                        if response:
+                            manifest.reset()  # 清除損毀紀錄
+                            old_files = {}
+                        else:
+                            raise Exception("使用者取消備份")
+                else:
+                    old_files = {}
+            
             # 掃描來源資料夾
             new_files = DeltaBackupEngine.scan_folder(source)
             
-            # 取得舊的檔案清單
-            old_files = manifest.get_files_dict()
+            # 取得舊的檔案清單（如果尚未取得）
+            if 'old_files' not in locals():
+                old_files = manifest.get_files_dict()
             
             # 檢測變化
             added, modified, deleted = DeltaBackupEngine.detect_changes(old_files, new_files)
