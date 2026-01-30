@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime
 
 # 新增模組路徑
-sys.path.insert(0, r"D:\dev\backup")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from backup_tool import DeltaBackupEngine, BackupManifest, BackupLogger
 

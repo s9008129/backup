@@ -146,6 +146,15 @@ class DeltaBackupEngine:
             raise Exception(f"檔案驗證失敗: {src} (大小不符)")
     
     @staticmethod
+    def delete_file(dst_path):
+        """刪除檔案"""
+        if os.path.exists(dst_path):
+            try:
+                os.remove(dst_path)
+            except Exception as e:
+                raise Exception(f"檔案刪除失敗: {dst_path} - {str(e)}")
+    
+    @staticmethod
     def verify_backup(source_folder, target_folder, files_to_check):
         """驗證備份完整性"""
         errors = []
@@ -389,7 +398,15 @@ class BackupToolGUI:
                 except Exception as e:
                     error_list.append(f"更新失敗: {rel_path} - {str(e)}")
             
-            # 已刪除的檔案記錄在元資料中（不在备份文件夹中删除）
+            # 刪除已刪除的檔案（同步策略）
+            for rel_path in deleted:
+                try:
+                    dst = os.path.join(backup_folder, rel_path)
+                    DeltaBackupEngine.delete_file(dst)
+                except Exception as e:
+                    error_list.append(f"刪除失敗: {rel_path} - {str(e)}")
+            
+            # 記錄所有仍存在的檔案
             for rel_path in new_files:
                 if rel_path not in error_list:
                     backup_files[rel_path] = new_files[rel_path]
@@ -403,9 +420,12 @@ class BackupToolGUI:
             manifest.update(source, target, backup_files)
             
             # 記錄成功狀態
-            changed_count = len(added) + len(modified)
+            changed_count = len(added) + len(modified) + len(deleted)
             record["status"] = "✅ 備份完成"
             record["changedFiles"] = changed_count
+            record["addedFiles"] = len(added)
+            record["modifiedFiles"] = len(modified)
+            record["deletedFiles"] = len(deleted)
             
             if error_list:
                 record["error"] = "; ".join(error_list[:3])  # 只記錄前3個錯誤
@@ -540,14 +560,15 @@ class BackupToolGUI:
         if records:
             record = records[0]
             time_str = datetime.fromisoformat(record['timestamp']).strftime("%Y-%m-%d %H:%M:%S")
-            changed_str = str(record.get('changedFiles', 0))
+            added_str = str(record.get('addedFiles', 0))
+            modified_str = str(record.get('modifiedFiles', 0))
+            deleted_str = str(record.get('deletedFiles', 0))
             status_str = record.get('status', '未知')
             error_str = record.get('error', '無')
             
             text = f"日期時間: {time_str}\n"
-            text += f"異動檔案: {changed_str} 個\n"
-            text += f"狀態: {status_str}\n"
-            text += f"錯誤: {error_str}"
+            text += f"新增: {added_str} | 修改: {modified_str} | 刪除: {deleted_str}\n"
+            text += f"狀態: {status_str} | 錯誤: {error_str}"
             
             self.result_text.insert(1.0, text)
         else:
@@ -564,10 +585,12 @@ class BackupToolGUI:
         if records:
             for record in records:
                 time_str = datetime.fromisoformat(record['timestamp']).strftime("%m-%d %H:%M")
-                changed_str = str(record.get('changedFiles', 0))
+                added_str = str(record.get('addedFiles', 0))
+                modified_str = str(record.get('modifiedFiles', 0))
+                deleted_str = str(record.get('deletedFiles', 0))
                 status_str = record.get('status', '未知')
                 
-                line = f"{time_str} | {changed_str}個 | {status_str}\n"
+                line = f"{time_str} | 新+{added_str} 改~{modified_str} 刪-{deleted_str} | {status_str}\n"
                 self.history_text.insert(tk.END, line)
         else:
             self.history_text.insert(1.0, "暫無歷史記錄")
