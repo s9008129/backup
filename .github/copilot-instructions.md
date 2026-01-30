@@ -158,6 +158,157 @@ def test_detect_changes():
 - 不要混合多個無關的功能在一次提交中
 - 不要提交半完成的功能
 
+---
+
+## 📝 zh-TW 語言標準化規範（非常重要！）
+
+> 本專案使用台灣繁體中文（zh-TW），所有代碼、文檔、提交訊息都必須遵循此規範。
+
+### MUST（必須遵守）
+
+✅ **所有使用者面向文本 MUST 使用繁體中文**
+- 代碼註解
+- GUI 標籤和訊息
+- 文檔
+- Commit 訊息
+
+✅ **Commit 訊息 MUST 符合格式**:
+```
+<type>(<scope>): <繁體中文摘要>
+
+[詳細內容用繁體中文]
+```
+
+✅ **術語統一對照表**（MUST 使用左側，禁用右側）:
+
+| 英文 | zh-TW 標準 | ❌ 禁用 | 說明 |
+|------|-----------|--------|------|
+| Repository | 儲存庫 | 倉庫/repo | |
+| Commit | 提交 | 承諾/推送 | |
+| Branch | 分支 | 樹幹 | |
+| File | 檔案 | 文件 | 文件指 document |
+| Folder | 資料夾 | 文件夾/目錄 | |
+| Backup | 備份 | 後備 | |
+| Restore | 恢復 | 還原/復原 | |
+| Delta | 差異 | 增量/變更 | |
+| Manifest | 清單/元資料 | - | |
+| History | 歷史紀錄 | 歷史/記錄 | |
+| Progress | 進度 | - | |
+| Thread | 執行緒 | 線程 | |
+| GUI | 圖形介面 | 圖像介面/視窗 | |
+| Error | 錯誤 | 異常/問題 | |
+| Warning | 警告 | 提示/通知 | |
+| Verify | 驗證 | 檢查/確認 | |
+| Source | 來源 | 源/原始 | |
+| Target | 目的地/目標 | - | |
+| Property | 屬性 | 性質 | |
+
+### ShouldNot（應該避免）
+
+❌ **混用繁簡體中文**
+```python
+# 不要這樣：
+def backup_data():  # 備份數據，混用簡體
+    pass
+
+# 應該這樣：
+def backup_data():  # 備份資料（完全繁體）
+    pass
+```
+
+❌ **英文術語不加說明就使用**
+```python
+# 不要這樣：
+status = "pending"  # 直接用英文
+
+# 應該這樣：
+status = "待處理"  # 或在註解中說明
+# status: "pending" (待處理)
+```
+
+❌ **模糊的中英混雜**
+```python
+# 不要這樣：
+result = check_file_status()  # 檢查 file 狀態
+
+# 應該這樣：
+result = check_file_status()  # 檢查檔案狀態
+```
+
+❌ **使用簡體字** (常見簡體字遺跡):
+| 簡體 | 繁體 | | 簡體 | 繁體 | | 簡體 | 繁體 |
+|------|------|---|------|------|---|------|------|
+| 图 | 圖 | | 象 | 象 | | 类 | 類 |
+| 来 | 來 | | 往 | 往 | | 会 | 會 |
+| 用 | 用 | | 做 | 做 | | 过 | 過 |
+| 叫 | 叫 | | 说 | 說 | | 告 | 告 |
+| 数 | 數 | | 整 | 整 | | 面 | 面 |
+
+### 驗證檢查清單 (Code Review)
+
+在每次提交前檢查：
+
+```bash
+# 檢查簡體字遺跡
+grep -r '[图象类来往会用做过叫说]' src/ .github/ docs/
+
+# 檢查 commit 訊息格式
+git log --oneline -5
+
+# 檢查代碼註解的繁體一致性
+grep -r '# ' src/*.py | head -10
+
+# 檢查 GUI 訊息的繁體一致性
+grep -r 'messagebox\|Label\|title' src/*.py | head -10
+```
+
+### 文檔標準
+
+- **README.md**: 繁體中文，技術術語可保留英文
+- **spec.md**: 100% 繁體中文，詳細技術說明
+- **操作指南.md**: 100% 繁體中文，非技術人員導向
+- **.github/copilot-instructions.md**: 繁體中文 + 英文術語說明
+
+### Commit 訊息範例
+
+✅ **好的例子**:
+```
+fix(manifest): 修復 JSON 編碼問題
+
+## 意圖與情境
+使用者在 Windows 11 上執行備份時，
+如果檔案名包含特殊中文字符會導致 JSON 編碼錯誤。
+
+## 執行內容
+- 修改 BackupManifest.save() 確保使用 UTF-8 編碼
+- 添加 ensure_ascii=False 參數到 json.dump()
+- 新增相關測試案例
+
+## 決策理由
+Windows 預設編碼非 UTF-8，需明確指定。
+JSON 的 ensure_ascii=False 允許直接儲存非 ASCII 字符。
+
+## 執行結果
+- 測試通過：繁體中文檔名正確儲存
+- 驗證：manifest.json 能正確讀寫
+
+## 待確認
+無
+```
+
+❌ **不好的例子**:
+```
+fix: update json  # 訊息過模糊
+
+fix: fix encoding problem  # 用英文，不說明背景
+
+fix: 修复 json 问题  # 使用簡體字
+
+chore: 东西  # 無意義
+```
+
+---
+
 ✅ **代碼註解**:
 - 解釋為什麼而非如何
 - 記錄複雜算法的邏輯
