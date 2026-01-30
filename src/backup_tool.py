@@ -24,6 +24,141 @@ class BackupIntegrityError(Exception):
     pass
 
 
+class BackupLock:
+    """備份狀態鎖定 (P2-5) - 防止並發備份"""
+    def __init__(self, lock_file):
+        self.lock_file = lock_file
+        self.locked = False
+    
+    def acquire(self):
+        """取得鎖定"""
+        if os.path.exists(self.lock_file):
+            # 讀取 PID 檢查是否真的在進行
+            try:
+                with open(self.lock_file, 'r') as f:
+                    old_pid = int(f.read().strip())
+                # 簡單檢查：Windows 上無法完全確認，但可以拋出異常
+                raise Exception(f"備份已在進行中 (PID: {old_pid})，請稍候...")
+            except (ValueError, OSError):
+                # 鎖文件損毀，刪除並重新取得
+                try:
+                    os.remove(self.lock_file)
+                except:
+                    pass
+        
+        # 建立鎖文件
+        try:
+            with open(self.lock_file, 'w') as f:
+                f.write(str(os.getpid()))
+            self.locked = True
+        except Exception as e:
+            raise Exception(f"無法建立備份鎖: {e}")
+    
+    def release(self):
+        """釋放鎖定"""
+        if self.locked and os.path.exists(self.lock_file):
+            try:
+                os.remove(self.lock_file)
+                self.locked = False
+            except:
+                pass
+
+
+class FailureReport:
+    """詳細失敗報告 (P2-6) - 增強診斷能力"""
+    def __init__(self):
+        self.failures = []
+    
+    def record_failure(self, file_path, error_type, error_msg, action="skip", severity="warning"):
+        """記錄失敗詳情"""
+        failure_record = {
+            "file": file_path,
+            "error_type": error_type,
+            "error_msg": error_msg,
+            "timestamp": datetime.now().isoformat(),
+            "action": action,
+            "severity": severity
+        }
+        self.failures.append(failure_record)
+    
+    def get_summary(self):
+        """取得失敗摘要"""
+        if not self.failures:
+            return None
+        
+        warnings = [f for f in self.failures if f["severity"] == "warning"]
+        errors = [f for f in self.failures if f["severity"] == "error"]
+        
+        summary = {
+            "total_failures": len(self.failures),
+            "warnings": len(warnings),
+            "errors": len(errors),
+            "failures": self.failures
+        }
+        return summary
+    
+    def to_string(self):
+        """轉換為字串摘要"""
+        if not self.failures:
+            return None
+        
+        lines = []
+        for failure in self.failures[:5]:  # 只顯示前5個
+            severity_icon = "⚠️" if failure["severity"] == "warning" else "❌"
+            lines.append(f"{severity_icon} {failure['file']}: {failure['error_type']}")
+        
+        if len(self.failures) > 5:
+            lines.append(f"... 及其他 {len(self.failures) - 5} 個問題")
+        
+        return "\n".join(lines)
+
+
+class RecoveryMode:
+    """備份復原模式 (P2-7) - 從失敗狀態恢復"""
+    
+    @staticmethod
+    def recover_from_failed_backup(backup_folder, manifest_path, source_folder):
+        """
+        從失敗狀態恢復：重新同步 manifest 與實際備份
+        
+        場景: 備份中斷，manifest 不準確或損毀
+        
+        操作流程:
+        1. 掃描實際備份資料夾的內容
+        2. 比較 manifest 記錄
+        3. 修正 manifest 為實際狀態
+        4. 列出缺失的檔案
+        """
+        try:
+            # 掃描實際備份資料夾
+            actual_files = DeltaBackupEngine.scan_folder(backup_folder)
+            
+            # 載入舊 manifest
+            manifest = BackupManifest(manifest_path)
+            old_manifest_files = manifest.get_files_dict()
+            
+            # 計算差異
+            missing_in_backup = set(old_manifest_files.keys()) - set(actual_files.keys())
+            extra_in_backup = set(actual_files.keys()) - set(old_manifest_files.keys())
+            
+            # 更新 manifest 為實際狀態
+            manifest.update(source_folder, os.path.dirname(manifest_path), actual_files)
+            
+            recovery_info = {
+                "recovered": True,
+                "actual_files_count": len(actual_files),
+                "missing_files_count": len(missing_in_backup),
+                "extra_files_count": len(extra_in_backup),
+                "missing_files": list(missing_in_backup)[:10],  # 只列出前10個
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            return recovery_info
+            
+        except Exception as e:
+            raise Exception(f"復原失敗: {e}")
+
+
 class BackupManifest:
     """備份元資料管理"""
     def __init__(self, manifest_path):
@@ -316,7 +451,7 @@ class BackupToolGUI:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("簡易差異備份工具 v1.0")
+        self.root.title("簡易差異備份工具 v1.2")
         self.root.geometry("650x750")
         self.root.resizable(False, False)
         
@@ -330,6 +465,9 @@ class BackupToolGUI:
         os.makedirs(self.log_dir, exist_ok=True)
         self.manifest = BackupManifest(os.path.join(self.log_dir, "manifest.json"))
         self.logger = BackupLogger(os.path.join(self.log_dir, "history.json"))
+        
+        # P2-5: 備份鎖定機制
+        self.backup_lock = BackupLock(os.path.join(self.log_dir, ".backup.lock"))
         
         # 載入上次設定
         self._load_settings()
@@ -454,11 +592,25 @@ class BackupToolGUI:
         self.backup_btn.config(state=tk.DISABLED)
         self.restore_btn.config(state=tk.DISABLED)
         
+        # P2-5: 取得備份鎖定
+        try:
+            self.backup_lock.acquire()
+        except Exception as e:
+            messagebox.showwarning("備份進行中", str(e))
+            self.backup_running = False
+            self.backup_btn.config(state=tk.NORMAL)
+            self.restore_btn.config(state=tk.NORMAL)
+            return
+        
+        # P2-6: 初始化詳細失敗報告
+        failure_report = FailureReport()
+        
         record = {
             "timestamp": datetime.now().isoformat(),
             "status": "進行中",
             "changedFiles": 0,
-            "error": ""
+            "error": "",
+            "failures": None  # P2-6: 詳細失敗報告
         }
         
         try:
@@ -547,7 +699,12 @@ class BackupToolGUI:
                     DeltaBackupEngine.copy_file(src, dst)
                     backup_files[rel_path] = new_files[rel_path]
                 except Exception as e:
-                    error_list.append(f"複製失敗: {rel_path} - {str(e)}")
+                    # P2-6: 詳細失敗報告
+                    failure_report.record_failure(
+                        rel_path, type(e).__name__, str(e),
+                        action="skip", severity="warning"
+                    )
+                    error_list.append(f"複製失敗: {rel_path}")
             
             for rel_path in modified:
                 try:
@@ -556,7 +713,12 @@ class BackupToolGUI:
                     DeltaBackupEngine.copy_file(src, dst)
                     backup_files[rel_path] = new_files[rel_path]
                 except Exception as e:
-                    error_list.append(f"更新失敗: {rel_path} - {str(e)}")
+                    # P2-6: 詳細失敗報告
+                    failure_report.record_failure(
+                        rel_path, type(e).__name__, str(e),
+                        action="skip", severity="warning"
+                    )
+                    error_list.append(f"更新失敗: {rel_path}")
             
             # 刪除已刪除的檔案（同步策略）
             for rel_path in deleted:
@@ -564,7 +726,12 @@ class BackupToolGUI:
                     dst = os.path.join(backup_folder, rel_path)
                     DeltaBackupEngine.delete_file(dst)
                 except Exception as e:
-                    error_list.append(f"刪除失敗: {rel_path} - {str(e)}")
+                    # P2-6: 詳細失敗報告
+                    failure_report.record_failure(
+                        rel_path, type(e).__name__, str(e),
+                        action="skip", severity="warning"
+                    )
+                    error_list.append(f"刪除失敗: {rel_path}")
             
             # 記錄所有仍存在的檔案
             for rel_path in new_files:
@@ -602,12 +769,28 @@ class BackupToolGUI:
         except Exception as e:
             record["status"] = "❌ 備份失敗"
             record["error"] = str(e)
+            
+            # P2-7: 嘗試備份復原模式
+            try:
+                backup_folder = os.path.join(target, "backup_data")
+                manifest_path = os.path.join(target, ".backup_manifest")
+                if os.path.exists(backup_folder) and os.path.exists(manifest_path):
+                    recovery_info = RecoveryMode.recover_from_failed_backup(
+                        backup_folder, manifest_path, source
+                    )
+                    record["recovery_attempted"] = recovery_info
+            except:
+                pass
+            
             self.logger.add_record(record)
             self.root.after(0, self._update_result_display)
             self.root.after(0, self._update_history_display)
             self.root.after(0, lambda: messagebox.showerror("備份錯誤", str(e)))
         
         finally:
+            # P2-5: 釋放備份鎖定
+            self.backup_lock.release()
+            
             self.backup_running = False
             self.backup_btn.config(state=tk.NORMAL)
             self.restore_btn.config(state=tk.NORMAL)
