@@ -25,26 +25,84 @@ class BackupIntegrityError(Exception):
 
 
 class BackupLock:
-    """備份狀態鎖定 (P2-5) - 防止並發備份"""
+    """備份狀態鎖定 (P2-5) - 防止並發備份
+    
+    智能鎖機制：
+    1. 嘗試驗證鎖檔中的 PID 是否真實運行
+    2. 若 PID 不存在（程序已終止），自動清除殘留鎖檔
+    3. 提供清楚的使用者提示與手動解決方案
+    """
     def __init__(self, lock_file):
         self.lock_file = lock_file
         self.locked = False
     
+    @staticmethod
+    def _is_process_alive(pid):
+        """檢查 PID 是否真實存在（跨平台）"""
+        try:
+            # 首先嘗試使用 psutil（更可靠）
+            try:
+                import psutil
+                return psutil.pid_exists(pid)
+            except (ImportError, AttributeError):
+                pass
+            
+            # 降級方案：Windows 上使用 tasklist，Unix 上使用 kill 0
+            if sys.platform.startswith('win'):
+                import subprocess
+                try:
+                    result = subprocess.run(
+                        ['tasklist', '/FI', f'PID eq {pid}'],
+                        capture_output=True, text=True, timeout=2
+                    )
+                    return str(pid) in result.stdout
+                except:
+                    return False
+            else:
+                # Unix/Linux：使用 os.kill(pid, 0) 測試
+                try:
+                    os.kill(pid, 0)
+                    return True
+                except OSError:
+                    return False
+        except Exception:
+            return False
+    
     def acquire(self):
-        """取得鎖定"""
+        """取得鎖定 - 智能檢查舊 PID，自動清理殘留鎖檔"""
         if os.path.exists(self.lock_file):
-            # 讀取 PID 檢查是否真的在進行
             try:
                 with open(self.lock_file, 'r') as f:
-                    old_pid = int(f.read().strip())
-                # 簡單檢查：Windows 上無法完全確認，但可以拋出異常
-                raise Exception(f"備份已在進行中 (PID: {old_pid})，請稍候...")
-            except (ValueError, OSError):
-                # 鎖文件損毀，刪除並重新取得
+                    content = f.read().strip()
+                
+                # 嘗試解析 PID
+                old_pid = None
                 try:
-                    os.remove(self.lock_file)
-                except:
-                    pass
+                    old_pid = int(content)
+                except ValueError:
+                    # 鎖檔內容非整數，視為損毀
+                    raise Exception("stale_lock")
+                
+                # 驗證 PID 是否真實運行
+                if self._is_process_alive(old_pid):
+                    # PID 仍在運行 → 真的有備份在進行
+                    raise Exception(f"backup_in_progress:{old_pid}")
+                else:
+                    # PID 已不存在 → 殘留鎖檔，自動清除
+                    raise Exception("stale_lock")
+            
+            except Exception as e:
+                error_type = str(e)
+                if error_type.startswith("backup_in_progress:"):
+                    # 有真實的備份正在運行
+                    old_pid = error_type.split(':')[1]
+                    raise Exception(f"備份已在進行中 (PID: {old_pid})，請稍候...")
+                else:
+                    # 殘留或損毀的鎖檔 → 嘗試刪除
+                    try:
+                        os.remove(self.lock_file)
+                    except:
+                        pass
         
         # 建立鎖文件
         try:
@@ -596,10 +654,40 @@ class BackupToolGUI:
         try:
             self.backup_lock.acquire()
         except Exception as e:
-            messagebox.showwarning("備份進行中", str(e))
+            error_msg = str(e)
+            
+            # 記錄鎖定衝突到歷史（用於追蹤和排查）
+            conflict_record = {
+                "timestamp": datetime.now().isoformat(),
+                "status": "⚠️ 鎖定衝突",
+                "error": error_msg,
+                "lockFile": self.backup_lock.lock_file
+            }
+            self.logger.add_record(conflict_record)
+            
+            # 提供友善且可操作的提示
+            if "備份已在進行中" in error_msg:
+                user_prompt = (
+                    f"{error_msg}\n\n"
+                    f"💡 處理方案：\n"
+                    f"1. 確認沒有其他視窗或程序正在執行備份\n"
+                    f"2. 若不確定已完成，查看下方「最新結果」或「備份歷史」\n"
+                    f"3. 若要強制解除，可刪除此鎖檔後重試：\n"
+                    f"   {self.backup_lock.lock_file}\n\n"
+                    f"點擊「確定」按鈕後，鎖定衝突已記錄到歷史紀錄。"
+                )
+            else:
+                user_prompt = f"❌ 備份鎖定錯誤：{error_msg}"
+            
+            messagebox.showwarning("備份狀態提示", user_prompt)
+            
             self.backup_running = False
             self.backup_btn.config(state=tk.NORMAL)
             self.restore_btn.config(state=tk.NORMAL)
+            
+            # 更新 UI 以反映最新狀態
+            self.root.after(0, self._update_result_display)
+            self.root.after(0, self._update_history_display)
             return
         
         # P2-6: 初始化詳細失敗報告
@@ -928,12 +1016,19 @@ class BackupToolGUI:
         if records:
             for record in records:
                 time_str = datetime.fromisoformat(record['timestamp']).strftime("%m-%d %H:%M")
-                added_str = str(record.get('addedFiles', 0))
-                modified_str = str(record.get('modifiedFiles', 0))
-                deleted_str = str(record.get('deletedFiles', 0))
                 status_str = record.get('status', '未知')
                 
-                line = f"{time_str} | 新+{added_str} 改~{modified_str} 刪-{deleted_str} | {status_str}\n"
+                # 根據記錄類型格式化顯示
+                if '鎖定衝突' in status_str:
+                    # 鎖定衝突的簡要顯示
+                    line = f"{time_str} | {status_str}\n"
+                else:
+                    # 正常備份的詳細顯示
+                    added_str = str(record.get('addedFiles', 0))
+                    modified_str = str(record.get('modifiedFiles', 0))
+                    deleted_str = str(record.get('deletedFiles', 0))
+                    line = f"{time_str} | 新+{added_str} 改~{modified_str} 刪-{deleted_str} | {status_str}\n"
+                
                 self.history_text.insert(tk.END, line)
         else:
             self.history_text.insert(1.0, "暫無歷史記錄")
