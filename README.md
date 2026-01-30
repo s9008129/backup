@@ -1,238 +1,126 @@
-# 簡易差異備份工具 (Simple Delta Backup Tool)
+# 簡易差異備份工具
 
-## 📋 專案概述
+一個為 Windows 使用者設計的簡潔高效的差異備份工具。
 
-一個為 Windows 使用者設計的簡潔、高效的差異備份工具。功能包括：
-- ✅ 手動備份（一鍵開始）
-- ✅ 差異檢測（只備份異動檔案）
-- ✅ 檔案恢復（簡單易用的恢復嚮導）
-- ✅ 日誌記錄（備份歷史追蹤）
-- ✅ 自動清理（1年保留政策）
+## ✨ 核心功能
 
-## 🛠️ 開發環境設定
+- **一鍵備份** - 簡單直觀的 GUI 介面
+- **智能差異檢測** - 只備份已改動的檔案  
+- **檔案恢復** - 方便的復原功能
+- **備份日誌** - 完整的操作歷史記錄
 
-### 前置要求
+## 🚀 快速開始
 
-- **Windows 11**
-- **Python 3.11+** (必須)
-  - 下載: https://www.python.org/downloads/
-- **Git** (必須)
-  - 下載: https://git-scm.com/download/win
-- **Conda** (可選)
-  - 下載: https://docs.conda.io/projects/miniconda/en/latest/
-  - 若未安裝，本工具自動使用 Python venv
+### 環境要求
 
-### 快速開始
+- Windows 11
+- Python 3.11+
+- Conda (或 venv)
 
-#### 1️⃣ 自動設定（推薦）
+### 安裝步驟
 
 ```bash
-cd D:\dev\backup
-setup_v2.bat
-```
-
-此腳本會自動：
-- 檢查 Python 和 Git
-- 偵測 Conda（有則用，無則用 venv）
-- 建立虛擬環境
-- 安裝所有依賴
-- 初始化 Git
-
-#### 2️⃣ 手動設定 (Conda)
-
-如果已安裝 Conda：
-
-```bash
-conda env create -f environment.yml
-conda activate backup
-pip install -r requirements.txt
-```
-
-#### 3️⃣ 手動設定 (Python venv)
-
-使用 Python 內建虛擬環境：
-
-```bash
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-#### 4️⃣ 初始化 Git
-
-```bash
-git init
-git config user.email "your-email@example.com"
-git config user.name "Your Name"
-git add .
-git commit -m "Initial commit"
-```
-
-## 🚀 使用方式
-
-### 執行備份工具
-
-```bash
-# 激活環境 (Conda)
+# 1. 啟動 Conda 虛擬環境
 conda activate backup
 
-# 或激活環境 (venv)
-venv\Scripts\activate
+# 2. 安裝依賴
+pip install -r requirements.txt
 
-# 運行應用程序
-python backup_tool.py
+# 3. 執行應用
+python src/backup_tool.py
 ```
 
-### 運行測試
+## 📖 使用方式
 
-```bash
-# 激活環境
-conda activate backup    # 或 venv\Scripts\activate
+### 首次備份
 
-# 執行測試
-python test_backup.py
-```
+1. 執行應用：`python src/backup_tool.py`
+2. 選擇來源資料夾（要備份的檔案位置）
+3. 選擇備份目的地（外接硬碟路徑）
+4. 點擊「開始備份」按鈕
 
-### 驗證環境
+### 後續備份
 
-```bash
-# 激活環境後執行
-python validate_env.py
-```
+應用會自動偵測改動，只備份新增或修改的檔案，節省時間和空間。
 
-## 📦 環境依賴
+### 恢復檔案
 
-| 套件 | 版本 | 用途 |
-|------|------|------|
-| Python | 3.11+ | 核心語言 |
-| tkinter | 系統套件 | GUI介面 |
-| json | 內建 | 元資料序列化 |
-| shutil | 內建 | 檔案操作 |
-| threading | 內建 | 背景執行 |
-| python-dateutil | 2.8.2+ | 時間處理 |
-| pytz | 2023.3+ | 時區支持 |
+1. 執行應用
+2. 在恢復面板選擇備份資料夾
+3. 選擇要恢復的檔案或資料夾
+4. 點擊「恢復」按鈕
 
 ## 📁 專案結構
 
 ```
-D:\dev\backup\
-├── backup_tool.py           # 主應用程序
-├── test_backup.py           # 單元測試
-├── spec.md                  # 規格文件
-├── environment.yml          # Conda 環境定義
-├── requirements.txt         # pip 依賴清單
-├── setup_env.bat            # 自動化設定腳本
-├── run_backup_tool.bat      # 執行腳本
-├── README.md                # 本檔案
-└── .gitignore              # Git 忽略規則
+backup/
+├── src/
+│   └── backup_tool.py         # 主應用程序
+├── tests/
+│   └── test_backup.py         # 單元測試
+├── docs/
+│   ├── 操作指南.md            # 使用者手冊
+│   └── 開發指南.md            # 開發文檔
+├── .github/
+│   └── copilot-instructions.md # AI 指導原則
+├── spec.md                    # 功能規格文件
+├── requirements.txt           # 依賴清單
+├── environment.yml            # Conda 環境定義
+└── README.md                  # 本檔案
 ```
 
-## 🔧 開發流程
-
-### 版本控制
+## 🧪 測試
 
 ```bash
-# 查看狀態
-git status
+# 執行單元測試
+python tests/test_backup.py
 
-# 提交變更
-git add .
-git commit -m "feat: 新功能描述
-
-詳細說明...
-- 列點1
-- 列點2
-"
-
-# 查看日誌
-git log --oneline
+# 預期結果：✅ 所有測試通過
 ```
 
-### 編碼規範
+## 📝 配置檔案
 
-- 使用 UTF-8 編碼
-- 函數文件字串用中文或英文註解
-- 類別名稱: PascalCase
-- 函數/變數名稱: snake_case
-- 常數名稱: UPPER_SNAKE_CASE
+| 檔案 | 用途 |
+|------|------|
+| `requirements.txt` | Python 依賴包 |
+| `environment.yml` | Conda 環境定義 |
+| `pyproject.toml` | 專案設定 |
 
-### 測試
+## ⚙️ 資料位置
 
-```bash
-# 運行單元測試
-python test_backup.py
+- **元資料**: `~\.backup_tool\manifest.json`
+- **歷史日誌**: `~\.backup_tool\history.json`
+- **備份內容**: 使用者指定的外接裝置
 
-# 測試通過
-✅ 所有測試通過!
-```
+## 🔐 安全性
 
-## 📚 主要模組
+✅ 備份前自動驗證檔案完整性  
+✅ 恢復前顯示預覽清單  
+✅ 所有操作均有詳細日誌  
+✅ 元資料以 JSON 格式儲存便於稽核  
 
-### `BackupManifest` 類
-管理備份元資料（`.backup_manifest` 檔案）
+## 📚 文檔
 
-### `DeltaBackupEngine` 類
-實現差異檢測和備份邏輯
-
-### `BackupLogger` 類
-管理備份歷史日誌
-
-### `BackupToolGUI` 類
-提供使用者介面
+- **spec.md** - 完整的功能規格文件
+- **docs/操作指南.md** - 非技術人員使用指南
+- **docs/開發指南.md** - 開發人員參考
 
 ## 🐛 常見問題
 
-### Q: 如何重新建立環境？
-```bash
-conda env remove -n backup
-conda env create -f environment.yml
-```
+**Q: 備份中斷後如何繼續？**  
+A: 應用會自動檢測已備份的檔案，重新執行時只備份未完成的部分。
 
-### Q: 如何清理快取？
-```bash
-conda clean --all
-rm -rf __pycache__ .pytest_cache
-```
+**Q: 如何清理舊備份？**  
+A: 備份資料夾可直接删除，應用使用自動清理機制（1年保留政策）。
 
-### Q: 如何檢查環境套件？
-```bash
-conda activate backup
-pip list
-```
-
-## 📝 記錄位置
-
-- **元資料**: `~/.backup_tool/manifest.json`
-- **歷史**: `~\.backup_tool\history.json`
-- **備份**: 使用者指定的外接裝置
-
-## 🔒 安全性考量
-
-- 元資料以 JSON 格式儲存（易於稽核）
-- 備份時自動驗證檔案完整性
-- 恢復前顯示預覽清單
-- 所有操作都有詳細日誌
-
-## 📞 技術支援
-
-遇到問題請：
-1. 查看 `.backup_tool/history.json` 中的錯誤日誌
-2. 確認外接裝置連接正常
-3. 檢查檔案夾權限設定
-
-## 📜 版本歷史
-
-- **v1.0** (2026-01-29)
-  - 初始版本
-  - 差異備份功能
-  - 檔案恢復功能
-  - 日誌記錄系統
+**Q: 可以備份到網路硬碟嗎？**  
+A: 建議使用本地外接硬碟。網路硬碟可能導致速度緩慢或連線中斷。
 
 ## 📄 授權
 
-MIT License - 自由使用和修改
+MIT License
 
 ---
 
-**最後更新**: 2026-01-29  
-**狀態**: 開發中 🚀
+**最後更新**: 2026-01-30  
+**版本**: v1.0
